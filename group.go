@@ -7,9 +7,10 @@ import (
 )
 
 type Group struct {
-	ctx    context.Context
-	cancel context.CancelCauseFunc
-	limit  chan struct{}
+	ctx      context.Context
+	cancel   context.CancelCauseFunc
+	limit    chan struct{}
+	closedCh chan struct{}
 
 	mu     sync.Mutex
 	closed bool
@@ -25,10 +26,11 @@ func NewGroup(parent context.Context, limit int) (*Group, error) {
 
 	ctx, cancel := context.WithCancelCause(parent)
 	return &Group{
-		ctx:    ctx,
-		cancel: cancel,
-		limit:  make(chan struct{}, limit),
-		errs:   make(map[int]error),
+		ctx:      ctx,
+		cancel:   cancel,
+		limit:    make(chan struct{}, limit),
+		closedCh: make(chan struct{}),
+		errs:     make(map[int]error),
 	}, nil
 }
 
@@ -49,6 +51,8 @@ func (g *Group) Go(fn func(context.Context) error) error {
 
 	select {
 	case g.limit <- struct{}{}:
+	case <-g.closedCh:
+		return ErrClosed
 	case <-g.ctx.Done():
 		g.mu.Lock()
 		closed := g.closed
@@ -91,7 +95,10 @@ func (g *Group) Go(fn func(context.Context) error) error {
 
 func (g *Group) Wait() error {
 	g.mu.Lock()
-	g.closed = true
+	if !g.closed {
+		g.closed = true
+		close(g.closedCh)
+	}
 	g.mu.Unlock()
 
 	g.wg.Wait()
