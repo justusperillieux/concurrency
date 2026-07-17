@@ -22,7 +22,21 @@ go get github.com/justusschock/go-concurrency@v0.1.0
 
 ## API and examples
 
+Choose an abstraction based on the shape and lifetime of the work:
+
+- Use a `Future` for one asynchronous result that you may await later.
+- Use a `Group` for a scoped batch of related tasks that may run different
+  functions, share cancellation, and join their errors.
+- Use `ParallelMap` to apply one function to a collection concurrently while
+  preserving input order.
+- Use a `Pool` for an ongoing stream of typed inputs processed by one reusable
+  worker function, with explicit worker and queue limits and a future for each
+  admitted job.
+
 ### Typed futures
+
+Use a future when one asynchronous operation produces a value or error that
+will be consumed later.
 
 `Go` starts one function asynchronously and returns a `*Future[T]`.
 `Completed` and `Failed` create already-resolved futures. A future exposes:
@@ -77,6 +91,10 @@ func main() {
 
 ### Bounded structured groups
 
+Use a group for fork-join work: submit one scoped batch of related callbacks,
+cancel peers when a callback fails, and wait for the whole batch. Each `Go`
+call may submit a different function.
+
 `NewGroup(parent, limit)` creates a group with a positive concurrency limit.
 `Go` admits callbacks up to that limit and blocks while capacity is full. The
 first callback error cancels the shared group context; `Wait` drains admitted
@@ -124,6 +142,9 @@ func main() {
 
 ### Ordered `ParallelMap`
 
+Use `ParallelMap` when every input needs the same transformation and the output
+must remain in input order even though work runs concurrently.
+
 `ParallelMap` applies a typed function with bounded concurrency. Successful
 results always follow input order, regardless of completion order. On any
 admission or callback error it waits for admitted work and returns a nil result
@@ -163,6 +184,12 @@ func main() {
 ```
 
 ### Reusable worker pool
+
+Use a pool when jobs arrive over time and all typed inputs should pass through
+the same reusable worker function. A pool combines bounded admission
+(`workers + queue`) with a separate execution limit (`workers`) and returns an
+independent future for each admitted job. Unlike a group, one worker error does
+not cancel the other jobs or become part of one aggregate error.
 
 `NewPool(ctx, workers, queue, worker)` reuses one typed worker function across
 submissions. `Submit` waits for admission using its own context and returns a
