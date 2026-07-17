@@ -9,11 +9,12 @@ type Pool[I, O any] struct {
 	ctx    context.Context
 	worker func(context.Context, I) (O, error)
 
-	slots   chan struct{}
-	workers chan struct{}
-	mu      sync.Mutex
-	closed  bool
-	wg      sync.WaitGroup
+	slots    chan struct{}
+	workers  chan struct{}
+	closedCh chan struct{}
+	mu       sync.Mutex
+	closed   bool
+	wg       sync.WaitGroup
 }
 
 func NewPool[I, O any](ctx context.Context, workers, queue int, worker func(context.Context, I) (O, error)) (*Pool[I, O], error) {
@@ -25,10 +26,11 @@ func NewPool[I, O any](ctx context.Context, workers, queue int, worker func(cont
 	}
 
 	return &Pool[I, O]{
-		ctx:     ctx,
-		worker:  worker,
-		slots:   make(chan struct{}, workers+queue),
-		workers: make(chan struct{}, workers),
+		ctx:      ctx,
+		worker:   worker,
+		slots:    make(chan struct{}, workers+queue),
+		workers:  make(chan struct{}, workers),
+		closedCh: make(chan struct{}),
 	}, nil
 }
 
@@ -45,6 +47,8 @@ func (p *Pool[I, O]) Submit(ctx context.Context, input I) (*Future[O], error) {
 	}
 	select {
 	case p.slots <- struct{}{}:
+	case <-p.closedCh:
+		return nil, ErrClosed
 	case <-ctx.Done():
 		return nil, context.Cause(ctx)
 	}
@@ -79,7 +83,10 @@ func (p *Pool[I, O]) Submit(ctx context.Context, input I) (*Future[O], error) {
 
 func (p *Pool[I, O]) Close() {
 	p.mu.Lock()
-	p.closed = true
+	if !p.closed {
+		p.closed = true
+		close(p.closedCh)
+	}
 	p.mu.Unlock()
 }
 

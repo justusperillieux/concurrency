@@ -211,11 +211,14 @@ func TestPoolCloseRejectsSubmissionWaitingForCapacity(t *testing.T) {
 	waitForPoolSignal(t, submitCtx.observed)
 	pool.Close()
 	pool.Close()
-	close(release)
 	got := waitForPoolOutcome(t, result)
 	if got.future != nil || !errors.Is(got.err, ErrClosed) {
 		t.Fatalf("racing Submit=(%v,%v), want (nil,%v)", got.future, got.err, ErrClosed)
 	}
+	if _, _, ok := first.Try(); ok {
+		t.Fatal("Close resolved admitted work before capacity was released")
+	}
+	close(release)
 	pool.Wait()
 	pool.Wait()
 	assertPoolFutureValue(t, first, 1)
