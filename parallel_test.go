@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -86,6 +87,77 @@ func TestParallelMapReturnsCallbackErrorWithoutPartialResults(t *testing.T) {
 	if values != nil || !errors.Is(err, want) {
 		t.Fatalf("ParallelMap()=(%v,%v), want (nil,%v)", values, err, want)
 	}
+}
+
+func TestParallelMapPreservesCallbackErrorsWhenAdmissionStops(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		wants := []error{
+			errors.New("input 0 failed"),
+			errors.New("input 1 failed"),
+		}
+		releases := []chan struct{}{make(chan struct{}), make(chan struct{})}
+		started := make(chan int, 2)
+		completed := make(chan int, 2)
+		var calls atomic.Int32
+		type outcome struct {
+			values []int
+			err    error
+		}
+		result := make(chan outcome, 1)
+		go func() {
+			values, err := ParallelMap(context.Background(), []int{0, 1, 2}, 2, func(_ context.Context, value int) (int, error) {
+				calls.Add(1)
+				if value == 2 {
+					return 2, nil
+				}
+				started <- value
+				<-releases[value]
+				completed <- value
+				return 0, wants[value]
+			})
+			result <- outcome{values: values, err: err}
+		}()
+
+		seen := map[int]bool{<-started: true, <-started: true}
+		if !seen[0] || !seen[1] {
+			t.Fatalf("started callbacks=%v, want inputs 0 and 1", seen)
+		}
+		synctest.Wait()
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("callback calls before failure=%d, want 2", got)
+		}
+
+		close(releases[1])
+		if got := <-completed; got != 1 {
+			t.Fatalf("first completed input=%d, want 1", got)
+		}
+		synctest.Wait()
+		select {
+		case got := <-result:
+			t.Fatalf("ParallelMap returned before input 0 completed: (%v,%v)", got.values, got.err)
+		default:
+		}
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("callback calls after admission stopped=%d, want 2", got)
+		}
+
+		close(releases[0])
+		if got := <-completed; got != 0 {
+			t.Fatalf("second completed input=%d, want 0", got)
+		}
+		got := <-result
+		if got.values != nil {
+			t.Fatalf("ParallelMap values=%v, want nil", got.values)
+		}
+		for _, want := range wants {
+			if !errors.Is(got.err, want) {
+				t.Fatalf("ParallelMap error=%v, want errors.Is(_, %v)", got.err, want)
+			}
+		}
+		if got, want := got.err.Error(), "input 0 failed\ninput 1 failed"; got != want {
+			t.Fatalf("ParallelMap error=%q, want %q", got, want)
+		}
+	})
 }
 
 func TestParallelMapStopsAdmissionOnParentCancellation(t *testing.T) {

@@ -21,7 +21,9 @@ func ParallelMap[T, R any](ctx context.Context, values []T, limit int, fn func(c
 			}
 			return err
 		}); err != nil {
-			_ = group.Wait()
+			if callbackErr := group.Wait(); callbackErr != nil {
+				return nil, callbackErr
+			}
 			return nil, err
 		}
 	}
