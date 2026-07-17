@@ -9,7 +9,7 @@ Module path: `github.com/justusschock/go-concurrency`
 
 ## Requirements and installation
 
-Go 1.26 or newer is required.
+Go 1.22 or newer is required.
 
 Because the module is private, configure repository access through your normal
 GitHub authentication before installing it. Keep credentials out of commands,
@@ -292,13 +292,16 @@ lifetimes, retry policy, and application-level shutdown.
 
 ## Development
 
-Run the local checks with Go 1.26 or newer:
+Run the local checks with Go 1.22 or newer:
 
 ```bash
 go test ./...
 go test -race ./...
 go vet ./...
 ```
+
+CI runs module verification, vet, and the race-enabled test suite on each Go
+minor version from 1.22 through 1.26.
 
 ## License
 
