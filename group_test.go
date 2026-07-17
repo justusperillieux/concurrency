@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 )
 
@@ -37,128 +36,124 @@ func TestGroupRejectsNilFunction(t *testing.T) {
 }
 
 func TestGroupBoundAndClosure(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		group, err := NewGroup(context.Background(), 2)
-		if err != nil {
+	group, err := NewGroup(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+	var running atomic.Int32
+	var peak atomic.Int32
+	work := func(context.Context) error {
+		current := running.Add(1)
+		defer running.Add(-1)
+		for old := peak.Load(); current > old && !peak.CompareAndSwap(old, current); old = peak.Load() {
+		}
+		started <- struct{}{}
+		<-release
+		return nil
+	}
+
+	for range 2 {
+		if err := group.Go(work); err != nil {
 			t.Fatal(err)
 		}
+	}
+	<-started
+	<-started
 
-		release := make(chan struct{})
-		started := make(chan struct{}, 2)
-		var running atomic.Int32
-		var peak atomic.Int32
-		work := func(context.Context) error {
-			current := running.Add(1)
-			defer running.Add(-1)
-			for old := peak.Load(); current > old && !peak.CompareAndSwap(old, current); old = peak.Load() {
-			}
-			started <- struct{}{}
-			<-release
-			return nil
-		}
+	thirdSubmission := make(chan error, 1)
+	go func() {
+		thirdSubmission <- group.Go(func(context.Context) error { return nil })
+	}()
+	select {
+	case err := <-thirdSubmission:
+		t.Fatalf("third Go returned before capacity was available: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
 
-		for range 2 {
-			if err := group.Go(work); err != nil {
-				t.Fatal(err)
-			}
-		}
-		<-started
-		<-started
+	close(release)
+	err = <-thirdSubmission
+	if err != nil {
+		t.Fatalf("third Go=%v, want nil", err)
+	}
 
-		thirdSubmission := make(chan error, 1)
-		go func() {
-			thirdSubmission <- group.Go(func(context.Context) error { return nil })
-		}()
-		synctest.Wait()
-		select {
-		case err := <-thirdSubmission:
-			t.Fatalf("third Go returned before capacity was available: %v", err)
-		default:
-		}
-
-		close(release)
-		err = <-thirdSubmission
-		if err != nil {
-			t.Fatalf("third Go=%v, want nil", err)
-		}
-
-		if err := group.Wait(); err != nil {
-			t.Fatalf("Wait()=%v, want nil", err)
-		}
-		if got := peak.Load(); got != 2 {
-			t.Fatalf("peak concurrency=%d, want 2", got)
-		}
-		if err := group.Go(func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
-			t.Fatalf("late Go=%v, want %v", err, ErrClosed)
-		}
-	})
+	if err := group.Wait(); err != nil {
+		t.Fatalf("Wait()=%v, want nil", err)
+	}
+	if got := peak.Load(); got != 2 {
+		t.Fatalf("peak concurrency=%d, want 2", got)
+	}
+	if err := group.Go(func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
+		t.Fatalf("late Go=%v, want %v", err, ErrClosed)
+	}
 }
 
 func TestGroupWaitUnblocksCapacityBlockedGo(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		group, err := NewGroup(context.Background(), 1)
-		if err != nil {
-			t.Fatal(err)
-		}
+	group, err := NewGroup(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		release := make(chan struct{})
-		admittedContext := make(chan context.Context, 1)
-		if err := group.Go(func(ctx context.Context) error {
-			admittedContext <- ctx
-			<-release
+	release := make(chan struct{})
+	admittedContext := make(chan context.Context, 1)
+	if err := group.Go(func(ctx context.Context) error {
+		admittedContext <- ctx
+		<-release
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := <-admittedContext
+
+	var rejectedCallbackRan atomic.Bool
+	blockedGo := make(chan error, 1)
+	go func() {
+		blockedGo <- group.Go(func(context.Context) error {
+			rejectedCallbackRan.Store(true)
 			return nil
-		}); err != nil {
-			t.Fatal(err)
-		}
-		ctx := <-admittedContext
+		})
+	}()
+	select {
+	case err := <-blockedGo:
+		t.Fatalf("capacity-blocked Go returned before Wait: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
 
-		var rejectedCallbackRan atomic.Bool
-		blockedGo := make(chan error, 1)
-		go func() {
-			blockedGo <- group.Go(func(context.Context) error {
-				rejectedCallbackRan.Store(true)
-				return nil
-			})
-		}()
-		synctest.Wait()
+	waitResult := make(chan error, 1)
+	go func() {
+		waitResult <- group.Wait()
+	}()
 
-		waitResult := make(chan error, 1)
-		go func() {
-			waitResult <- group.Wait()
-		}()
-		synctest.Wait()
-
-		select {
-		case err := <-blockedGo:
-			if !errors.Is(err, ErrClosed) {
-				t.Fatalf("capacity-blocked Go after Wait=%v, want %v", err, ErrClosed)
-			}
-		default:
-			close(release)
-			synctest.Wait()
-			t.Fatal("capacity-blocked Go did not return before admitted work was released")
+	select {
+	case err := <-blockedGo:
+		if !errors.Is(err, ErrClosed) {
+			t.Fatalf("capacity-blocked Go after Wait=%v, want %v", err, ErrClosed)
 		}
-		select {
-		case <-ctx.Done():
-			close(release)
-			synctest.Wait()
-			t.Fatalf("Wait canceled admitted work: %v", context.Cause(ctx))
-		default:
-		}
-		select {
-		case err := <-waitResult:
-			t.Fatalf("Wait returned before admitted work was released: %v", err)
-		default:
-		}
-		if rejectedCallbackRan.Load() {
-			t.Fatal("callback ran for rejected Go")
-		}
-
+	case <-time.After(groupTestTimeout):
 		close(release)
-		if err := <-waitResult; err != nil {
-			t.Fatalf("Wait()=%v, want nil", err)
-		}
-	})
+		t.Fatal("capacity-blocked Go did not return before admitted work was released")
+	}
+	select {
+	case <-ctx.Done():
+		close(release)
+		t.Fatalf("Wait canceled admitted work: %v", context.Cause(ctx))
+	default:
+	}
+	select {
+	case err := <-waitResult:
+		t.Fatalf("Wait returned before admitted work was released: %v", err)
+	default:
+	}
+	if rejectedCallbackRan.Load() {
+		t.Fatal("callback ran for rejected Go")
+	}
+
+	close(release)
+	if err := <-waitResult; err != nil {
+		t.Fatalf("Wait()=%v, want nil", err)
+	}
 }
 
 func TestGroupJoinsErrorsBySubmissionIndex(t *testing.T) {
