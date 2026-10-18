@@ -13,6 +13,7 @@ type poolSubmitOutcome[T any] struct {
 	err    error
 }
 
+// FR-CONC-16
 func TestPoolRejectsInvalidConfiguration(t *testing.T) {
 	worker := func(context.Context, int) (int, error) { return 0, nil }
 	for _, test := range []struct {
@@ -38,6 +39,7 @@ func TestPoolRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+// FR-CONC-17
 func TestPoolBoundsAdmissionAndRejectsAfterClose(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -137,6 +139,7 @@ func TestPoolBoundsAdmissionAndRejectsAfterClose(t *testing.T) {
 	})
 }
 
+// FR-CONC-19
 func TestPoolAdmittedWorkUsesParentContext(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		type contextKey struct{}
@@ -181,6 +184,7 @@ func TestPoolAdmittedWorkUsesParentContext(t *testing.T) {
 	})
 }
 
+// FR-CONC-18
 func TestPoolCloseRejectsSubmissionWaitingForCapacity(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -228,6 +232,7 @@ func TestPoolCloseRejectsSubmissionWaitingForCapacity(t *testing.T) {
 	})
 }
 
+// FR-CONC-20
 func TestPoolFutureCarriesWorkerError(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		want := errors.New("worker failed")

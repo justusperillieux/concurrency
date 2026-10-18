@@ -9,6 +9,7 @@ import (
 	"testing/synctest"
 )
 
+// FR-CONC-05
 func TestFutureValueErrorAndIndependentWaitCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -38,6 +39,7 @@ func TestFutureValueErrorAndIndependentWaitCancellation(t *testing.T) {
 	})
 }
 
+// FR-CONC-02
 func TestFutureConstructorsAndNilFunction(t *testing.T) {
 	completed := Completed("ready")
 	if value, err := completed.Await(context.Background()); err != nil || value != "ready" {
@@ -61,6 +63,7 @@ func TestFutureConstructorsAndNilFunction(t *testing.T) {
 	}
 }
 
+// FR-CONC-04
 func TestFutureTryAndDoneReportPublication(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -86,6 +89,7 @@ func TestFutureTryAndDoneReportPublication(t *testing.T) {
 	})
 }
 
+// FR-CONC-05
 func TestFutureReadyResultWinsCanceledWaitContext(t *testing.T) {
 	waitCause := errors.New("wait canceled")
 	waitCtx, cancelWait := context.WithCancelCause(context.Background())
@@ -110,6 +114,7 @@ func TestFutureReadyResultWinsCanceledWaitContext(t *testing.T) {
 	})
 }
 
+// FR-CONC-05
 func TestFutureAwaitReturnsCancellationCause(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -134,6 +139,7 @@ func TestFutureAwaitReturnsCancellationCause(t *testing.T) {
 	})
 }
 
+// FR-CONC-01
 func TestFutureGoRunsAsynchronouslyOnceWithWorkContext(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		type contextKey struct{}
@@ -180,6 +186,7 @@ func TestFutureGoRunsAsynchronouslyOnceWithWorkContext(t *testing.T) {
 	})
 }
 
+// FR-CONC-03
 func TestFutureResolvePublishesOnlyFirstResult(t *testing.T) {
 	future := newFuture[int]()
 	if future.Done() == nil {
@@ -204,6 +211,7 @@ func TestFutureResolvePublishesOnlyFirstResult(t *testing.T) {
 	}
 }
 
+// FR-CONC-34
 func TestFutureSentinelErrorsHaveStableText(t *testing.T) {
 	tests := []struct {
 		name string

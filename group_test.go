@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 )
 
+// FR-CONC-06
 func TestGroupRejectsInvalidLimit(t *testing.T) {
 	for _, limit := range []int{0, -1} {
 		t.Run("limit", func(t *testing.T) {
@@ -19,6 +20,7 @@ func TestGroupRejectsInvalidLimit(t *testing.T) {
 	}
 }
 
+// FR-CONC-06
 func TestGroupRejectsNilFunction(t *testing.T) {
 	group, err := NewGroup(context.Background(), 1)
 	if err != nil {
@@ -33,6 +35,7 @@ func TestGroupRejectsNilFunction(t *testing.T) {
 	}
 }
 
+// FR-CONC-07
 func TestGroupBoundAndClosure(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		group, err := NewGroup(context.Background(), 2)
@@ -90,6 +93,7 @@ func TestGroupBoundAndClosure(t *testing.T) {
 	})
 }
 
+// FR-CONC-08
 func TestGroupWaitUnblocksCapacityBlockedGo(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		group, err := NewGroup(context.Background(), 1)
@@ -165,6 +169,7 @@ func TestGroupWaitUnblocksCapacityBlockedGo(t *testing.T) {
 	})
 }
 
+// FR-CONC-10
 func TestGroupJoinsErrorsBySubmissionIndex(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		group, err := NewGroup(context.Background(), 3)
@@ -202,6 +207,7 @@ func TestGroupJoinsErrorsBySubmissionIndex(t *testing.T) {
 	})
 }
 
+// FR-CONC-09
 func TestGroupCallbackErrorCancelsPeersWithCause(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		group, err := NewGroup(context.Background(), 2)
@@ -241,6 +247,7 @@ func TestGroupCallbackErrorCancelsPeersWithCause(t *testing.T) {
 	})
 }
 
+// FR-CONC-11
 func TestGroupGoReturnsParentCancellationCause(t *testing.T) {
 	parent, cancel := context.WithCancelCause(context.Background())
 	group, err := NewGroup(parent, 1)

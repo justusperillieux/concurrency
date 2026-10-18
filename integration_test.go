@@ -11,6 +11,7 @@ import (
 	concurrency "github.com/justusschock/go-concurrency"
 )
 
+// NFR-CONC-05
 func TestPublicPrimitivesCompose(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

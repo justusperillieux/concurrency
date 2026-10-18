@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// FR-CONC-21
 func TestLimiterRejectsInvalidConfiguration(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -47,6 +48,7 @@ func TestLimiterRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+// FR-CONC-22
 func TestLimiterTryAcquireRefillsUpToBurst(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 10, 5)
@@ -66,6 +68,7 @@ func TestLimiterTryAcquireRefillsUpToBurst(t *testing.T) {
 	})
 }
 
+// FR-CONC-23
 func TestLimiterWaitBlocksUntilRefilled(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 2, 2)
@@ -89,6 +92,7 @@ func TestLimiterWaitBlocksUntilRefilled(t *testing.T) {
 	})
 }
 
+// FR-CONC-24
 func TestLimiterServesWaitersInOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 1, 4)
@@ -126,6 +130,7 @@ func TestLimiterServesWaitersInOrder(t *testing.T) {
 	})
 }
 
+// FR-CONC-25
 func TestLimiterWaitCancellationReleasesQueuePosition(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 1, 4)
@@ -172,6 +177,7 @@ func TestLimiterWaitCancellationReleasesQueuePosition(t *testing.T) {
 	})
 }
 
+// FR-CONC-26
 func TestLimiterZeroRateWaitsForSetRate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 0, 1)
@@ -202,6 +208,7 @@ func TestLimiterZeroRateWaitsForSetRate(t *testing.T) {
 	})
 }
 
+// FR-CONC-26
 func TestLimiterSetRateReschedulesWaiters(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 1, 1)
@@ -225,6 +232,7 @@ func TestLimiterSetRateReschedulesWaiters(t *testing.T) {
 	})
 }
 
+// FR-CONC-26
 func TestLimiterInfiniteRateIsUnlimited(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 1, 2)
@@ -256,6 +264,7 @@ func TestLimiterInfiniteRateIsUnlimited(t *testing.T) {
 	})
 }
 
+// FR-CONC-23
 func TestLimiterConcurrentWaitersShareRate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		limiter := mustLimiter(t, 100, 10)

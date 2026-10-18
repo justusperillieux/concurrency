@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 )
 
+// FR-CONC-27
 func TestAdaptiveRejectsInvalidOptions(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -35,6 +36,7 @@ func TestAdaptiveRejectsInvalidOptions(t *testing.T) {
 	}
 }
 
+// FR-CONC-27
 func TestAdaptiveDefaults(t *testing.T) {
 	adaptive := mustAdaptive(t, AdaptiveOptions{Max: 8})
 	if adaptive.Limit() != 1 || adaptive.InFlight() != 0 {
@@ -50,6 +52,7 @@ func TestAdaptiveDefaults(t *testing.T) {
 	}
 }
 
+// FR-CONC-28
 func TestAdaptiveAdditiveIncrease(t *testing.T) {
 	adaptive := mustAdaptive(t, AdaptiveOptions{Max: 3, Initial: 2, IncreaseAfter: 2})
 	var limits []int
@@ -72,6 +75,7 @@ func TestAdaptiveAdditiveIncrease(t *testing.T) {
 	}
 }
 
+// FR-CONC-29
 func TestAdaptiveMultiplicativeDecreaseAndFailure(t *testing.T) {
 	adaptive := mustAdaptive(t, AdaptiveOptions{Min: 2, Max: 20, Initial: 10, IncreaseAfter: 2, DecreaseFactor: 0.5})
 
@@ -97,6 +101,7 @@ func TestAdaptiveMultiplicativeDecreaseAndFailure(t *testing.T) {
 	}
 }
 
+// FR-CONC-30
 func TestAdaptiveConcurrentOverloadsDecreaseOnce(t *testing.T) {
 	adaptive := mustAdaptive(t, AdaptiveOptions{Max: 8, Initial: 8, DecreaseFactor: 0.5})
 	permits := make([]Permit, 8)
@@ -115,6 +120,7 @@ func TestAdaptiveConcurrentOverloadsDecreaseOnce(t *testing.T) {
 	}
 }
 
+// FR-CONC-31
 func TestAdaptiveBlocksAtLimitAndAdmitsInOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		adaptive := mustAdaptive(t, AdaptiveOptions{Max: 4, Initial: 2, IncreaseAfter: 1})
@@ -165,6 +171,7 @@ func TestAdaptiveBlocksAtLimitAndAdmitsInOrder(t *testing.T) {
 	})
 }
 
+// FR-CONC-31
 func TestAdaptiveInFlightCanExceedLoweredLimit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		adaptive := mustAdaptive(t, AdaptiveOptions{Max: 4, Initial: 4, DecreaseFactor: 0.5})
@@ -198,6 +205,7 @@ func TestAdaptiveInFlightCanExceedLoweredLimit(t *testing.T) {
 	})
 }
 
+// FR-CONC-32
 func TestAdaptiveAcquireCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		adaptive := mustAdaptive(t, AdaptiveOptions{Max: 1})
@@ -242,6 +250,7 @@ func TestAdaptiveAcquireCancellation(t *testing.T) {
 	})
 }
 
+// FR-CONC-33
 func TestAdaptivePermitReleaseIsIdempotent(t *testing.T) {
 	adaptive := mustAdaptive(t, AdaptiveOptions{Max: 2, IncreaseAfter: 1})
 	permit := acquire(t, adaptive)
@@ -255,6 +264,7 @@ func TestAdaptivePermitReleaseIsIdempotent(t *testing.T) {
 	Permit{}.Release(Success)
 }
 
+// NFR-CONC-02
 func TestAdaptiveConcurrentUseRespectsBounds(t *testing.T) {
 	adaptive := mustAdaptive(t, AdaptiveOptions{Min: 2, Max: 6, IncreaseAfter: 1, DecreaseFactor: 0.5})
 	var running atomic.Int32

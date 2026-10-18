@@ -14,6 +14,7 @@ type parallelOutcome struct {
 	err    error
 }
 
+// FR-CONC-12
 func TestParallelMapPreservesInputOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		releases := map[int]chan struct{}{
@@ -55,6 +56,7 @@ func TestParallelMapPreservesInputOrder(t *testing.T) {
 	})
 }
 
+// FR-CONC-13
 func TestParallelMapRejectsInvalidInputs(t *testing.T) {
 	t.Run("nil function", func(t *testing.T) {
 		values, err := ParallelMap[int, int](context.Background(), []int{1}, 0, nil)
@@ -75,6 +77,7 @@ func TestParallelMapRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+// FR-CONC-14
 func TestParallelMapReturnsCallbackErrorWithoutPartialResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		want := errors.New("mapping failed")
@@ -87,6 +90,7 @@ func TestParallelMapReturnsCallbackErrorWithoutPartialResults(t *testing.T) {
 	})
 }
 
+// FR-CONC-14
 func TestParallelMapPreservesCallbackErrorsWhenAdmissionStops(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		wants := []error{
@@ -154,6 +158,7 @@ func TestParallelMapPreservesCallbackErrorsWhenAdmissionStops(t *testing.T) {
 	})
 }
 
+// FR-CONC-15
 func TestParallelMapStopsAdmissionOnParentCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		parent, cancel := context.WithCancelCause(context.Background())
