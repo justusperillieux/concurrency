@@ -8,71 +8,26 @@ While the major version is `0`, a minor release may break the API.
 
 ## [Unreleased]
 
-Preparation for the first public release.
+## [0.1.0] - 2026-10-18
 
-### Removed
-
-- **Breaking:** `Retry`, `RetryValue`, `RetryPolicy`, `Permanent` and the
-  `DefaultRetry*` constants. Retries are not a concurrency primitive; use a
-  dedicated library such as `github.com/cenkalti/backoff/v5`
-  ([ADR-0007](docs/adr/0007-retries-out-of-scope.md)).
-
-### Changed
-
-- Public API boundary reviewed: every remaining exported identifier is part of
-  the public API; nothing moved to `internal/` or unexported
-  ([ADR-0008](docs/adr/0008-public-api-boundary.md)).
-- Minimum Go version is 1.25, required by `testing/synctest`; CI tests Go
-  1.25, `oldstable` and `stable`
-  ([ADR-0009](docs/adr/0009-supported-go-versions.md)).
-- Future, group, `ParallelMap` and pool tests run in `testing/synctest`
-  bubbles instead of using wall-clock timeouts.
-- CI pins every action to a commit SHA, adds golangci-lint, and Dependabot
-  keeps Go modules and actions current.
+First public release.
 
 ### Added
 
-- Doc comments for every exported identifier and runnable examples for every
-  entry point.
-- `NOTICE`, `AGENTS.md`, a requirements document and architecture decision
-  records under `docs/`.
-
-## [0.3.0] - 2026-10-15
-
-### Added
-
+- Futures: `Go`, `Future[T]` with `Await`, `Try` and `Done`, and the resolved
+  constructors `Completed` and `Failed`.
+- Bounded structured groups (`NewGroup`) that cancel peers on the first error
+  and join all errors in submission order.
+- `ParallelMap`: ordered parallel map with bounded concurrency.
+- Worker pools (`NewPool`) with separate worker and queue limits and a future
+  per submission.
 - `Limiter`: token-bucket rate limiter with FIFO waiters and runtime
   `SetRate`.
 - `Adaptive`: AIMD concurrency limiter with `Permit` and `Success`,
   `Overload` and `Failure` outcomes.
-- `Retry`, `RetryValue` and `Permanent` (removed again before the first
-  public release).
+- Requirements and architecture decision records under `docs/`.
 
-### Changed
+Requires Go 1.25 or newer.
 
-- Minimum Go version raised to 1.25 for `testing/synctest`.
-
-## [0.2.0] - 2026-07-17
-
-### Changed
-
-- Minimum Go version lowered to 1.22; CI tests the supported Go versions.
-
-## [0.1.0] - 2026-07-17
-
-### Added
-
-- `Future` with `Go`, `Completed` and `Failed`.
-- `Group` for bounded structured concurrency and `ParallelMap`.
-- `Pool` for bounded reusable workers.
-
-### Fixed
-
-- `Group.Wait` unblocks `Go` calls waiting for capacity; `Pool.Close`
-  unblocks waiting submissions; `ParallelMap` preserves callback errors when
-  admission stops.
-
-[Unreleased]: https://github.com/justusschock/concurrency/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/justusschock/concurrency/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/justusschock/concurrency/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/justusschock/concurrency/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/justusschock/concurrency/releases/tag/v0.1.0
