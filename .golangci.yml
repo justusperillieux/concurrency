@@ -1,0 +1,15 @@
+version: "2"
+
+linters:
+  # The "standard" set (errcheck, govet, ineffassign, staticcheck, unused)
+  # plus linters for error handling and spelling. bodyclose is omitted: the
+  # module makes no HTTP requests.
+  default: standard
+  enable:
+    - errorlint
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
