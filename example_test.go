@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	concurrency "github.com/justusschock/go-concurrency"
+	concurrency "github.com/justusschock/concurrency"
 )
 
 // Square numbers with at most two concurrent calls; results keep input order.

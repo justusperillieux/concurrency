@@ -10,7 +10,7 @@
 
 ## Context
 
-Recorded retrospectively. go-concurrency sits at the bottom of a dependency
+Recorded retrospectively. concurrency sits at the bottom of a dependency
 graph: other libraries (executors, messaging, caches, lifecycle and
 reconciliation engines, object storage) import it. Every dependency it adds
 is inherited by all of them. `go.mod` has no `require` directives.

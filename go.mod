@@ -1,3 +1,3 @@
-module github.com/justusschock/go-concurrency
+module github.com/justusschock/concurrency
 
 go 1.25

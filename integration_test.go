@@ -8,7 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	concurrency "github.com/justusschock/go-concurrency"
+	concurrency "github.com/justusschock/concurrency"
 )
 
 // NFR-CONC-05

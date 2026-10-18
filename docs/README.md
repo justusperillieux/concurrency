@@ -1,4 +1,4 @@
-# go-concurrency documentation
+# concurrency documentation
 
 Requirements (PRDs) say *what* the library does; architecture decision
 records (ADRs) say *how and why*. The process is described in
@@ -12,7 +12,7 @@ Requirement area code: `CONC` (`FR-CONC-NN`, `NFR-CONC-NN`).
 
 | PRD | Title | Status | Implementation |
 |---|---|---|---|
-| [0001](prd/0001-go-concurrency.md) | go-concurrency | Accepted | Complete |
+| [0001](prd/0001-concurrency.md) | concurrency | Accepted | Complete |
 
 ## Architecture decisions
 

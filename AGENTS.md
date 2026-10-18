@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Rules for anyone, human or agent, changing go-concurrency. They are binding.
+Rules for anyone, human or agent, changing concurrency. They are binding.
 If a change has to break one, say so in the pull request and, where it is a design
 decision, record it in an ADR.
 
-go-concurrency is a standard-library-only Go library of typed primitives for
+concurrency is a standard-library-only Go library of typed primitives for
 in-process concurrent work: futures, bounded groups, ordered parallel maps,
 worker pools, a token-bucket rate limiter and an adaptive concurrency limiter.
 Its requirements and design decisions are recorded in [docs/](docs/README.md).
@@ -53,7 +53,7 @@ No behaviour is added or changed before the documents that govern it say so.
 
 ## Layout
 
-Single module, single package (`github.com/justusschock/go-concurrency`):
+Single module, single package (`github.com/justusschock/concurrency`):
 
 - `.` (package `concurrency`): the whole public API, one file per primitive:
   `future.go`, `group.go`, `parallel.go`, `pool.go`, `limiter.go`,

@@ -10,7 +10,7 @@
 
 ## Context
 
-Recorded retrospectively for the first public release. go-concurrency grew
+Recorded retrospectively for the first public release. concurrency grew
 from a handful of primitives into a library that other modules depend on.
 Its design decisions (cancellation semantics, error ordering, admission
 rules, dependency policy) were visible only in code, tests and commit

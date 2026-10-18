@@ -1,4 +1,4 @@
-# PRD 0001: go-concurrency
+# PRD 0001: concurrency
 
 | Field | Value |
 |---|---|
@@ -21,7 +21,7 @@ concurrency limit that backs off when a downstream is overloaded. Hand-rolled
 versions commonly leak goroutines, lose errors, block forever on shutdown or
 ignore cancellation.
 
-`go-concurrency` provides these building blocks as one small, typed,
+`concurrency` provides these building blocks as one small, typed,
 standard-library-only package with precise, tested semantics for errors,
 cancellation and shutdown. It is used by higher-level libraries (executors,
 messaging fan-out, caches, lifecycle and reconciliation engines, multipart

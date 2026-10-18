@@ -70,4 +70,4 @@ the type.
 
 ## Links
 
-- [PRD-0001 §6](../prd/0001-go-concurrency.md#6-api-sketch)
+- [PRD-0001 §6](../prd/0001-concurrency.md#6-api-sketch)
