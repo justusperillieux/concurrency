@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 )
 
+// DefaultAdaptiveDecreaseFactor is the AdaptiveOptions.DecreaseFactor used
+// when the option is zero.
 const DefaultAdaptiveDecreaseFactor = 0.7
 
 // Outcome reports how the work guarded by a Permit went.

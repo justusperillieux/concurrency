@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+// Group runs a scoped batch of related callbacks with bounded concurrency.
+// Callbacks share a context derived from the group's parent; the first
+// callback error cancels it with that error as the cause. Wait closes the
+// group to new work, drains admitted callbacks and joins their errors in
+// submission order. A Group is single-use and safe for concurrent use.
 type Group struct {
 	ctx      context.Context
 	cancel   context.CancelCauseFunc
@@ -19,6 +24,9 @@ type Group struct {
 	wg     sync.WaitGroup
 }
 
+// NewGroup returns a group whose callbacks run under a context derived from
+// parent, with at most limit callbacks running at once. It returns
+// ErrInvalidLimit if limit is not positive.
 func NewGroup(parent context.Context, limit int) (*Group, error) {
 	if limit <= 0 {
 		return nil, ErrInvalidLimit
@@ -34,6 +42,12 @@ func NewGroup(parent context.Context, limit int) (*Group, error) {
 	}, nil
 }
 
+// Go admits fn and runs it in a new goroutine with the group context. It
+// blocks while limit callbacks are running. It returns ErrNilFunction for a
+// nil fn, ErrClosed once Wait has been called (including while Go is blocked
+// waiting for capacity), and the context cause if the group context is done
+// before fn is admitted; in those cases fn does not run. Panics in fn are not
+// recovered.
 func (g *Group) Go(fn func(context.Context) error) error {
 	if fn == nil {
 		return ErrNilFunction
@@ -93,6 +107,10 @@ func (g *Group) Go(fn func(context.Context) error) error {
 	return nil
 }
 
+// Wait closes the group to new callbacks, blocks until every admitted callback
+// has returned and then cancels the group context. It returns the callback
+// errors joined with errors.Join in submission order, or nil if every
+// callback succeeded. Wait may be called more than once.
 func (g *Group) Wait() error {
 	g.mu.Lock()
 	if !g.closed {
