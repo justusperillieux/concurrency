@@ -5,10 +5,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
+	"testing/synctest"
 )
-
-const groupTestTimeout = time.Second
 
 func TestGroupRejectsInvalidLimit(t *testing.T) {
 	for _, limit := range []int{0, -1} {
@@ -36,197 +34,211 @@ func TestGroupRejectsNilFunction(t *testing.T) {
 }
 
 func TestGroupBoundAndClosure(t *testing.T) {
-	group, err := NewGroup(context.Background(), 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	release := make(chan struct{})
-	started := make(chan struct{}, 2)
-	var running atomic.Int32
-	var peak atomic.Int32
-	work := func(context.Context) error {
-		current := running.Add(1)
-		defer running.Add(-1)
-		for old := peak.Load(); current > old && !peak.CompareAndSwap(old, current); old = peak.Load() {
-		}
-		started <- struct{}{}
-		<-release
-		return nil
-	}
-
-	for range 2 {
-		if err := group.Go(work); err != nil {
+	synctest.Test(t, func(t *testing.T) {
+		group, err := NewGroup(context.Background(), 2)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	<-started
-	<-started
 
-	thirdSubmission := make(chan error, 1)
-	go func() {
-		thirdSubmission <- group.Go(func(context.Context) error { return nil })
-	}()
-	select {
-	case err := <-thirdSubmission:
-		t.Fatalf("third Go returned before capacity was available: %v", err)
-	case <-time.After(20 * time.Millisecond):
-	}
+		release := make(chan struct{})
+		started := make(chan struct{}, 2)
+		var running atomic.Int32
+		var peak atomic.Int32
+		work := func(context.Context) error {
+			current := running.Add(1)
+			defer running.Add(-1)
+			for old := peak.Load(); current > old && !peak.CompareAndSwap(old, current); old = peak.Load() {
+			}
+			started <- struct{}{}
+			<-release
+			return nil
+		}
 
-	close(release)
-	err = <-thirdSubmission
-	if err != nil {
-		t.Fatalf("third Go=%v, want nil", err)
-	}
+		for range 2 {
+			if err := group.Go(work); err != nil {
+				t.Fatal(err)
+			}
+		}
+		<-started
+		<-started
 
-	if err := group.Wait(); err != nil {
-		t.Fatalf("Wait()=%v, want nil", err)
-	}
-	if got := peak.Load(); got != 2 {
-		t.Fatalf("peak concurrency=%d, want 2", got)
-	}
-	if err := group.Go(func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
-		t.Fatalf("late Go=%v, want %v", err, ErrClosed)
-	}
+		thirdSubmission := make(chan error, 1)
+		go func() {
+			thirdSubmission <- group.Go(func(context.Context) error { return nil })
+		}()
+		synctest.Wait()
+		select {
+		case err := <-thirdSubmission:
+			t.Fatalf("third Go returned before capacity was available: %v", err)
+		default:
+		}
+
+		close(release)
+		if err := <-thirdSubmission; err != nil {
+			t.Fatalf("third Go=%v, want nil", err)
+		}
+
+		if err := group.Wait(); err != nil {
+			t.Fatalf("Wait()=%v, want nil", err)
+		}
+		if got := peak.Load(); got != 2 {
+			t.Fatalf("peak concurrency=%d, want 2", got)
+		}
+		if err := group.Go(func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
+			t.Fatalf("late Go=%v, want %v", err, ErrClosed)
+		}
+	})
 }
 
 func TestGroupWaitUnblocksCapacityBlockedGo(t *testing.T) {
-	group, err := NewGroup(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	release := make(chan struct{})
-	admittedContext := make(chan context.Context, 1)
-	if err := group.Go(func(ctx context.Context) error {
-		admittedContext <- ctx
-		<-release
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	ctx := <-admittedContext
-
-	var rejectedCallbackRan atomic.Bool
-	blockedGo := make(chan error, 1)
-	go func() {
-		blockedGo <- group.Go(func(context.Context) error {
-			rejectedCallbackRan.Store(true)
-			return nil
-		})
-	}()
-	select {
-	case err := <-blockedGo:
-		t.Fatalf("capacity-blocked Go returned before Wait: %v", err)
-	case <-time.After(20 * time.Millisecond):
-	}
-
-	waitResult := make(chan error, 1)
-	go func() {
-		waitResult <- group.Wait()
-	}()
-
-	select {
-	case err := <-blockedGo:
-		if !errors.Is(err, ErrClosed) {
-			t.Fatalf("capacity-blocked Go after Wait=%v, want %v", err, ErrClosed)
+	synctest.Test(t, func(t *testing.T) {
+		group, err := NewGroup(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
 		}
-	case <-time.After(groupTestTimeout):
-		close(release)
-		t.Fatal("capacity-blocked Go did not return before admitted work was released")
-	}
-	select {
-	case <-ctx.Done():
-		close(release)
-		t.Fatalf("Wait canceled admitted work: %v", context.Cause(ctx))
-	default:
-	}
-	select {
-	case err := <-waitResult:
-		t.Fatalf("Wait returned before admitted work was released: %v", err)
-	default:
-	}
-	if rejectedCallbackRan.Load() {
-		t.Fatal("callback ran for rejected Go")
-	}
 
-	close(release)
-	if err := <-waitResult; err != nil {
-		t.Fatalf("Wait()=%v, want nil", err)
-	}
-}
-
-func TestGroupJoinsErrorsBySubmissionIndex(t *testing.T) {
-	group, err := NewGroup(context.Background(), 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wants := []error{errors.New("first"), errors.New("second"), errors.New("third")}
-	releases := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{})}
-	completed := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{})}
-	for index := range wants {
-		index := index
-		if err := group.Go(func(context.Context) error {
-			<-releases[index]
-			close(completed[index])
-			return wants[index]
+		release := make(chan struct{})
+		defer func() {
+			select {
+			case <-release:
+			default:
+				close(release)
+			}
+		}()
+		admittedContext := make(chan context.Context, 1)
+		if err := group.Go(func(ctx context.Context) error {
+			admittedContext <- ctx
+			<-release
+			return nil
 		}); err != nil {
 			t.Fatal(err)
 		}
-	}
+		ctx := <-admittedContext
 
-	for _, index := range []int{2, 1, 0} {
-		close(releases[index])
-		waitForGroupSignal(t, completed[index])
-	}
-
-	err = group.Wait()
-	for _, want := range wants {
-		if !errors.Is(err, want) {
-			t.Fatalf("Wait error=%v, want errors.Is(_, %v)", err, want)
+		var rejectedCallbackRan atomic.Bool
+		blockedGo := make(chan error, 1)
+		go func() {
+			blockedGo <- group.Go(func(context.Context) error {
+				rejectedCallbackRan.Store(true)
+				return nil
+			})
+		}()
+		synctest.Wait()
+		select {
+		case err := <-blockedGo:
+			t.Fatalf("capacity-blocked Go returned before Wait: %v", err)
+		default:
 		}
-	}
-	if got, want := err.Error(), "first\nsecond\nthird"; got != want {
-		t.Fatalf("Wait error=%q, want %q", got, want)
-	}
+
+		waitResult := make(chan error, 1)
+		go func() {
+			waitResult <- group.Wait()
+		}()
+		synctest.Wait()
+
+		select {
+		case err := <-blockedGo:
+			if !errors.Is(err, ErrClosed) {
+				t.Fatalf("capacity-blocked Go after Wait=%v, want %v", err, ErrClosed)
+			}
+		default:
+			t.Fatal("capacity-blocked Go did not return before admitted work was released")
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Wait canceled admitted work: %v", context.Cause(ctx))
+		default:
+		}
+		select {
+		case err := <-waitResult:
+			t.Fatalf("Wait returned before admitted work was released: %v", err)
+		default:
+		}
+		if rejectedCallbackRan.Load() {
+			t.Fatal("callback ran for rejected Go")
+		}
+
+		close(release)
+		if err := <-waitResult; err != nil {
+			t.Fatalf("Wait()=%v, want nil", err)
+		}
+	})
+}
+
+func TestGroupJoinsErrorsBySubmissionIndex(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		group, err := NewGroup(context.Background(), 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		wants := []error{errors.New("first"), errors.New("second"), errors.New("third")}
+		releases := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{})}
+		completed := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{})}
+		for index := range wants {
+			if err := group.Go(func(context.Context) error {
+				<-releases[index]
+				close(completed[index])
+				return wants[index]
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		for _, index := range []int{2, 1, 0} {
+			close(releases[index])
+			<-completed[index]
+		}
+
+		err = group.Wait()
+		for _, want := range wants {
+			if !errors.Is(err, want) {
+				t.Fatalf("Wait error=%v, want errors.Is(_, %v)", err, want)
+			}
+		}
+		if got, want := err.Error(), "first\nsecond\nthird"; got != want {
+			t.Fatalf("Wait error=%q, want %q", got, want)
+		}
+	})
 }
 
 func TestGroupCallbackErrorCancelsPeersWithCause(t *testing.T) {
-	group, err := NewGroup(context.Background(), 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := errors.New("first callback failed")
-	peerStarted := make(chan struct{})
-	peerCause := make(chan error, 1)
-	if err := group.Go(func(context.Context) error {
-		<-peerStarted
-		return want
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := group.Go(func(ctx context.Context) error {
-		close(peerStarted)
-		<-ctx.Done()
-		peerCause <- context.Cause(ctx)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := group.Wait(); !errors.Is(err, want) {
-		t.Fatalf("Wait()=%v, want %v", err, want)
-	}
-	select {
-	case cause := <-peerCause:
-		if !errors.Is(cause, want) {
-			t.Fatalf("peer context cause=%v, want %v", cause, want)
+	synctest.Test(t, func(t *testing.T) {
+		group, err := NewGroup(context.Background(), 2)
+		if err != nil {
+			t.Fatal(err)
 		}
-	case <-time.After(groupTestTimeout):
-		t.Fatal("peer did not observe callback failure")
-	}
+
+		want := errors.New("first callback failed")
+		peerStarted := make(chan struct{})
+		peerCause := make(chan error, 1)
+		if err := group.Go(func(context.Context) error {
+			<-peerStarted
+			return want
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := group.Go(func(ctx context.Context) error {
+			close(peerStarted)
+			<-ctx.Done()
+			peerCause <- context.Cause(ctx)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := group.Wait(); !errors.Is(err, want) {
+			t.Fatalf("Wait()=%v, want %v", err, want)
+		}
+		select {
+		case cause := <-peerCause:
+			if !errors.Is(cause, want) {
+				t.Fatalf("peer context cause=%v, want %v", cause, want)
+			}
+		default:
+			t.Fatal("peer did not observe callback failure")
+		}
+	})
 }
 
 func TestGroupGoReturnsParentCancellationCause(t *testing.T) {
@@ -247,14 +259,5 @@ func TestGroupGoReturnsParentCancellationCause(t *testing.T) {
 	}
 	if called.Load() {
 		t.Fatal("callback ran after parent cancellation")
-	}
-}
-
-func waitForGroupSignal(t *testing.T, signal <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(groupTestTimeout):
-		t.Fatal("timed out waiting for group signal")
 	}
 }

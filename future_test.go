@@ -6,36 +6,36 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
+	"testing/synctest"
 )
 
-const futureTestTimeout = time.Second
-
 func TestFutureValueErrorAndIndependentWaitCancellation(t *testing.T) {
-	release := make(chan struct{})
-	started := make(chan struct{})
-	workCtx, stopWork := context.WithCancel(context.Background())
-	defer stopWork()
-	future := Go(workCtx, func(context.Context) (int, error) {
-		close(started)
-		<-release
-		return 42, nil
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		started := make(chan struct{})
+		workCtx, stopWork := context.WithCancel(context.Background())
+		defer stopWork()
+		future := Go(workCtx, func(context.Context) (int, error) {
+			close(started)
+			<-release
+			return 42, nil
+		})
+		<-started
+
+		waitCtx, stopWait := context.WithCancel(context.Background())
+		stopWait()
+		if value, err := future.Await(waitCtx); value != 0 || !errors.Is(err, context.Canceled) {
+			t.Fatalf("Await=(%d,%v), want (0, context.Canceled)", value, err)
+		}
+
+		close(release)
+		if value, err := future.Await(context.Background()); err != nil || value != 42 {
+			t.Fatalf("Await=(%d,%v), want (42, nil)", value, err)
+		}
+		if value, err, ok := future.Try(); !ok || err != nil || value != 42 {
+			t.Fatalf("Try=(%d,%v,%v), want (42, nil, true)", value, err, ok)
+		}
 	})
-	waitForFutureSignal(t, started)
-
-	waitCtx, stopWait := context.WithCancel(context.Background())
-	stopWait()
-	if value, err := future.Await(waitCtx); value != 0 || !errors.Is(err, context.Canceled) {
-		t.Fatalf("Await=(%d,%v), want (0, context.Canceled)", value, err)
-	}
-
-	close(release)
-	if value, err := future.Await(context.Background()); err != nil || value != 42 {
-		t.Fatalf("Await=(%d,%v), want (42, nil)", value, err)
-	}
-	if value, err, ok := future.Try(); !ok || err != nil || value != 42 {
-		t.Fatalf("Try=(%d,%v,%v), want (42, nil, true)", value, err, ok)
-	}
 }
 
 func TestFutureConstructorsAndNilFunction(t *testing.T) {
@@ -62,25 +62,28 @@ func TestFutureConstructorsAndNilFunction(t *testing.T) {
 }
 
 func TestFutureTryAndDoneReportPublication(t *testing.T) {
-	release := make(chan struct{})
-	started := make(chan struct{})
-	future := Go(context.Background(), func(context.Context) (string, error) {
-		close(started)
-		<-release
-		return "published", nil
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		started := make(chan struct{})
+		future := Go(context.Background(), func(context.Context) (string, error) {
+			close(started)
+			<-release
+			return "published", nil
+		})
+		<-started
+
+		if value, err, ok := future.Try(); value != "" || err != nil || ok {
+			t.Fatalf("pending Try=(%q,%v,%v), want (\"\", nil, false)", value, err, ok)
+		}
+		assertFuturePending(t, future.Done())
+
+		close(release)
+		synctest.Wait()
+		assertFutureDone(t, future.Done())
+		if value, err, ok := future.Try(); value != "published" || err != nil || !ok {
+			t.Fatalf("resolved Try=(%q,%v,%v), want (published, nil, true)", value, err, ok)
+		}
 	})
-	waitForFutureSignal(t, started)
-
-	if value, err, ok := future.Try(); value != "" || err != nil || ok {
-		t.Fatalf("pending Try=(%q,%v,%v), want (\"\", nil, false)", value, err, ok)
-	}
-	assertFuturePending(t, future.Done())
-
-	close(release)
-	assertFutureDone(t, future.Done())
-	if value, err, ok := future.Try(); value != "published" || err != nil || !ok {
-		t.Fatalf("resolved Try=(%q,%v,%v), want (published, nil, true)", value, err, ok)
-	}
 }
 
 func TestFutureReadyResultWinsCanceledWaitContext(t *testing.T) {
@@ -108,73 +111,73 @@ func TestFutureReadyResultWinsCanceledWaitContext(t *testing.T) {
 }
 
 func TestFutureAwaitReturnsCancellationCause(t *testing.T) {
-	release := make(chan struct{})
-	started := make(chan struct{})
-	future := Go(context.Background(), func(context.Context) (int, error) {
-		close(started)
-		<-release
-		return 1, nil
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		started := make(chan struct{})
+		future := Go(context.Background(), func(context.Context) (int, error) {
+			close(started)
+			<-release
+			return 1, nil
+		})
+		<-started
+
+		waitCause := errors.New("stop this wait")
+		waitCtx, cancelWait := context.WithCancelCause(context.Background())
+		cancelWait(waitCause)
+		if value, err := future.Await(waitCtx); value != 0 || !errors.Is(err, waitCause) {
+			t.Fatalf("Await=(%d,%v), want (0, %v)", value, err, waitCause)
+		}
+
+		close(release)
+		synctest.Wait()
+		assertFutureDone(t, future.Done())
 	})
-	waitForFutureSignal(t, started)
-
-	waitCause := errors.New("stop this wait")
-	waitCtx, cancelWait := context.WithCancelCause(context.Background())
-	cancelWait(waitCause)
-	if value, err := future.Await(waitCtx); value != 0 || !errors.Is(err, waitCause) {
-		t.Fatalf("Await=(%d,%v), want (0, %v)", value, err, waitCause)
-	}
-
-	close(release)
-	assertFutureDone(t, future.Done())
 }
 
 func TestFutureGoRunsAsynchronouslyOnceWithWorkContext(t *testing.T) {
-	type contextKey struct{}
-	workCtx := context.WithValue(context.Background(), contextKey{}, "work context")
-	release := make(chan struct{})
-	started := make(chan context.Context, 1)
-	var releaseOnce sync.Once
-	releaseWork := func() { releaseOnce.Do(func() { close(release) }) }
-	defer releaseWork()
+	synctest.Test(t, func(t *testing.T) {
+		type contextKey struct{}
+		workCtx := context.WithValue(context.Background(), contextKey{}, "work context")
+		release := make(chan struct{})
+		started := make(chan context.Context, 1)
+		var releaseOnce sync.Once
+		releaseWork := func() { releaseOnce.Do(func() { close(release) }) }
+		defer releaseWork()
 
-	var calls atomic.Int32
-	returned := make(chan *Future[string], 1)
-	go func() {
-		returned <- Go(workCtx, func(ctx context.Context) (string, error) {
-			calls.Add(1)
-			started <- ctx
-			<-release
-			return "done", nil
-		})
-	}()
+		var calls atomic.Int32
+		returned := make(chan *Future[string], 1)
+		go func() {
+			returned <- Go(workCtx, func(ctx context.Context) (string, error) {
+				calls.Add(1)
+				started <- ctx
+				<-release
+				return "done", nil
+			})
+		}()
 
-	var receivedCtx context.Context
-	select {
-	case receivedCtx = <-started:
-	case <-time.After(futureTestTimeout):
-		t.Fatal("Go function did not start")
-	}
-	if receivedCtx != workCtx {
-		t.Fatalf("function context=%v, want original work context", receivedCtx)
-	}
+		if receivedCtx := <-started; receivedCtx != workCtx {
+			t.Fatalf("function context=%v, want original work context", receivedCtx)
+		}
 
-	var future *Future[string]
-	select {
-	case future = <-returned:
-	case <-time.After(futureTestTimeout):
-		t.Fatal("Go did not return while its function was blocked")
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("function calls=%d, want 1", got)
-	}
+		synctest.Wait()
+		var future *Future[string]
+		select {
+		case future = <-returned:
+		default:
+			t.Fatal("Go did not return while its function was blocked")
+		}
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("function calls=%d, want 1", got)
+		}
 
-	releaseWork()
-	if value, err := future.Await(context.Background()); value != "done" || err != nil {
-		t.Fatalf("Await=(%q,%v), want (done, nil)", value, err)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("function calls after completion=%d, want 1", got)
-	}
+		releaseWork()
+		if value, err := future.Await(context.Background()); value != "done" || err != nil {
+			t.Fatalf("Await=(%q,%v), want (done, nil)", value, err)
+		}
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("function calls after completion=%d, want 1", got)
+		}
+	})
 }
 
 func TestFutureResolvePublishesOnlyFirstResult(t *testing.T) {
@@ -227,15 +230,7 @@ func TestFutureSentinelErrorsHaveStableText(t *testing.T) {
 	}
 }
 
-func waitForFutureSignal(t *testing.T, signal <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(futureTestTimeout):
-		t.Fatal("timed out waiting for future signal")
-	}
-}
-
+// assertFuturePending fails unless done is still open.
 func assertFuturePending(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
@@ -245,11 +240,13 @@ func assertFuturePending(t *testing.T, done <-chan struct{}) {
 	}
 }
 
+// assertFutureDone fails unless done is already closed. Inside a synctest
+// bubble, call synctest.Wait first so that pending work has settled.
 func assertFutureDone(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-done:
-	case <-time.After(futureTestTimeout):
-		t.Fatal("timed out waiting for future completion")
+	default:
+		t.Fatal("future is not done")
 	}
 }
