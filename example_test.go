@@ -2,9 +2,7 @@ package concurrency_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	concurrency "github.com/justusschock/go-concurrency"
 )
@@ -15,32 +13,6 @@ func ExampleParallelMap() {
 	})
 	fmt.Println(values)
 	// Output: [1 4 9]
-}
-
-func ExampleRetry() {
-	attempts := 0
-	err := concurrency.Retry(context.Background(), concurrency.RetryPolicy{
-		MaxAttempts: 5,
-		BaseDelay:   time.Millisecond,
-		Jitter:      0.5,
-	}, func(_ context.Context, attempt int) error {
-		attempts = attempt
-		if attempt < 3 {
-			return errors.New("temporarily unavailable")
-		}
-		return nil
-	})
-	fmt.Println(attempts, err)
-	// Output: 3 <nil>
-}
-
-func ExamplePermanent() {
-	errNotFound := errors.New("not found")
-	err := concurrency.Retry(context.Background(), concurrency.RetryPolicy{}, func(context.Context, int) error {
-		return concurrency.Permanent(errNotFound)
-	})
-	fmt.Println(errors.Is(err, errNotFound))
-	// Output: true
 }
 
 func ExampleLimiter() {

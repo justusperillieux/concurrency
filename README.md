@@ -2,9 +2,9 @@
 
 `go-concurrency` provides small, typed building blocks for asynchronous work,
 bounded structured concurrency, ordered parallel mapping, reusable worker
-pools, retries with backoff, token-bucket rate limiting, and adaptive
-concurrency limits. The module is private, depends only on the Go standard library, and is
-independent of product-specific resource types.
+pools, token-bucket rate limiting, and adaptive concurrency limits. The module
+is private, depends only on the Go standard library, and is independent of
+product-specific resource types.
 
 Module path: `github.com/justusschock/go-concurrency`
 
@@ -18,7 +18,7 @@ source files, and Go environment settings.
 
 ```bash
 go env -w GOPRIVATE='github.com/justusschock/*'
-go get github.com/justusschock/go-concurrency@v0.3.0
+go get github.com/justusschock/go-concurrency@v0.4.0
 ```
 
 ## API and examples
@@ -33,9 +33,6 @@ Choose an abstraction based on the shape and lifetime of the work:
 - Use a `Pool` for an ongoing stream of typed inputs processed by one reusable
   worker function, with explicit worker and queue limits and a future for each
   admitted job.
-- Use `Retry` or `RetryValue` to repeat one fallible operation with
-  exponential backoff until it succeeds, fails permanently, or runs out of
-  attempts.
 - Use a `Limiter` to cap the rate of operations or bytes per second with a
   token bucket.
 - Use an `Adaptive` limiter when the right concurrency is unknown and should
@@ -257,84 +254,6 @@ func main() {
 }
 ```
 
-### Retries with backoff
-
-`Retry(ctx, policy, fn)` calls `fn(ctx, attempt)` with attempts numbered from 1.
-`RetryValue` does the same for functions that return a value. Retrying stops
-when `fn` succeeds, the attempts are exhausted, `fn` returns an error marked
-with `Permanent`, `RetryPolicy.Retryable` reports false, or `ctx` is done.
-
-The delay before attempt `k+1` is `min(BaseDelay*Multiplier^(k-1), MaxDelay)`.
-`Jitter` in `[0, 1]` subtracts a random fraction of up to `Jitter` of that
-delay; `Jitter: 1` is full jitter. Zero fields use defaults:
-
-| Field | Zero value means |
-| --- | --- |
-| `MaxAttempts` | `DefaultRetryMaxAttempts` (3) |
-| `BaseDelay` | `DefaultRetryBaseDelay` (100ms) |
-| `MaxDelay` | `DefaultRetryMaxDelay` (10s), or `BaseDelay` if larger |
-| `Multiplier` | `DefaultRetryMultiplier` (2) |
-| `Jitter` | no jitter |
-| `Retryable` | retry every error not marked `Permanent` |
-
-```go
-package main
-
-import (
-	"context"
-	"errors"
-	"fmt"
-	"net/http"
-	"time"
-
-	concurrency "github.com/justusschock/go-concurrency"
-)
-
-var errNotFound = errors.New("not found")
-
-func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	body, err := concurrency.RetryValue(ctx, concurrency.RetryPolicy{
-		MaxAttempts: 5,
-		BaseDelay:   200 * time.Millisecond,
-		MaxDelay:    5 * time.Second,
-		Jitter:      1,
-	}, func(ctx context.Context, attempt int) (string, error) {
-		status, body := fetch(ctx, attempt)
-		switch {
-		case status == http.StatusNotFound:
-			return "", concurrency.Permanent(errNotFound)
-		case status != http.StatusOK:
-			return "", fmt.Errorf("status %d", status)
-		}
-		return body, nil
-	})
-	if errors.Is(err, errNotFound) {
-		fmt.Println("missing")
-		return
-	}
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(body)
-}
-
-func fetch(_ context.Context, attempt int) (int, string) {
-	if attempt < 3 {
-		return http.StatusServiceUnavailable, ""
-	}
-	return http.StatusOK, "payload"
-}
-```
-
-When attempts run out or an error is not retryable, `Retry` returns the last
-error. A `Permanent` error returned directly is unwrapped to the error passed
-to `Permanent`. If `ctx` is done while waiting between attempts, the result
-joins `context.Cause(ctx)` with the last attempt error, so `errors.Is` matches
-both.
-
 ### Token-bucket `Limiter`
 
 `NewLimiter(rate, burst)` creates a full bucket that holds at most `burst`
@@ -475,8 +394,6 @@ func upload(_ context.Context, part int) error {
   continues to completion after `Close`; `Wait` blocks until it has drained.
 - Future results are published once. `Try` reports pending work without blocking,
   and `Done` closes when the result is available.
-- `Retry` never sleeps after the final attempt and stops waiting as soon as its
-  context is done.
 - `Limiter.Wait` and `Adaptive.Acquire` serve blocked callers in FIFO order, so
   large token requests are not starved by smaller ones. `TryAcquire` never
   jumps ahead of queued waiters. A canceled wait takes no tokens or permit,
@@ -495,7 +412,7 @@ The package exports stable sentinel errors:
 | Error | Returned when |
 | --- | --- |
 | `ErrClosed` | `Group.Go` is called after `Wait`, or `Pool.Submit` is called after `Close` |
-| `ErrInvalidLimit` | A group/map limit, pool worker/queue configuration, retry policy, limiter rate/burst/token count, or adaptive option is invalid |
+| `ErrInvalidLimit` | A group/map limit, pool worker/queue configuration, limiter rate/burst/token count, or adaptive option is invalid |
 | `ErrNilFunction` | A required callback or worker function is nil |
 
 Use `errors.Is` for these sentinels, context cancellation causes, and callback or
@@ -504,15 +421,14 @@ joined from multiple callbacks, so callers must not compare errors by string or
 with `==`.
 
 For `Go[T](ctx, nil)`, the returned future is already resolved with
-`ErrNilFunction`; observe it through `Await` or `Try`. `Retry` and `RetryValue`
-return `ErrNilFunction` for a nil callback.
+`ErrNilFunction`; observe it through `Await` or `Try`.
 
 ## Scope and non-goals
 
 This module provides in-process concurrency mechanisms. It deliberately does
-not provide distributed execution, persistence, distributed or shared rate
-limits, priorities, dynamic pool resizing, or panic recovery. Callers own
-context lifetimes, which errors count as overload or are permanent, and
+not provide retries or backoff, distributed execution, persistence, distributed
+or shared rate limits, priorities, dynamic pool resizing, or panic recovery.
+Callers own context lifetimes, which errors count as overload, and
 application-level shutdown.
 
 ## Development
@@ -527,7 +443,7 @@ go vet ./...
 
 CI runs module verification, vet, and the race-enabled test suite on each Go
 minor version from 1.25 through 1.27. Time-dependent tests run inside
-`testing/synctest` bubbles, so backoff, refill, and wait timing is checked
+`testing/synctest` bubbles, so refill and wait timing is checked
 against a fake clock without real sleeps.
 
 ## License
