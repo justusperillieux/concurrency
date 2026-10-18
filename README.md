@@ -1,451 +1,222 @@
 # go-concurrency
 
-`go-concurrency` provides small, typed building blocks for asynchronous work,
-bounded structured concurrency, ordered parallel mapping, reusable worker
-pools, token-bucket rate limiting, and adaptive concurrency limits. The module
-is private, depends only on the Go standard library, and is independent of
-product-specific resource types.
+`go-concurrency` is a small Go library of typed building blocks for
+in-process concurrent work: futures, bounded structured groups, ordered
+parallel maps, reusable worker pools, token-bucket rate limiting and adaptive
+(AIMD) concurrency limits. It is for Go developers who fan work out across
+goroutines and want precise, tested semantics for errors, cancellation and
+shutdown without pulling in dependencies: it uses only the standard library.
 
-Module path: `github.com/justusschock/go-concurrency`
+## Features
 
-## Requirements and installation
+- **Futures**: `Go` starts one function and returns a typed `*Future[T]`;
+  `Await`, `Try` and `Done` read it. `Completed` and `Failed` build resolved
+  futures.
+- **Bounded groups**: `NewGroup` runs related callbacks with a concurrency
+  limit, cancels peers on the first error and joins all errors in submission
+  order.
+- **Ordered parallel map**: `ParallelMap` applies one function to a slice
+  with bounded concurrency and returns results in input order.
+- **Worker pools**: `NewPool` processes typed inputs with one worker function,
+  separate worker and queue limits, and a future per submission.
+- **Rate limiting**: `NewLimiter` is a token bucket with FIFO waiters and a
+  rate that can change at runtime (including paused and unlimited).
+- **Adaptive concurrency**: `NewAdaptive` admits permits up to a limit that
+  grows on `Success` and shrinks on `Overload`.
+- Context-aware everywhere, safe for concurrent use, no goroutine leaks, no
+  logging.
 
-Go 1.25 or newer is required.
-
-Because the module is private, configure repository access through your normal
-GitHub authentication before installing it. Keep credentials out of commands,
-source files, and Go environment settings.
+## Installation
 
 ```bash
-go env -w GOPRIVATE='github.com/justusschock/*'
-go get github.com/justusschock/go-concurrency@v0.4.0
+go get github.com/justusschock/go-concurrency@latest
 ```
 
-## API and examples
+Requires Go 1.25 or newer. Import it as:
 
-Choose an abstraction based on the shape and lifetime of the work:
+```go
+import concurrency "github.com/justusschock/go-concurrency"
+```
 
-- Use a `Future` for one asynchronous result that you may await later.
-- Use a `Group` for a scoped batch of related tasks that may run different
-  functions, share cancellation, and join their errors.
-- Use `ParallelMap` to apply one function to a collection concurrently while
-  preserving input order.
-- Use a `Pool` for an ongoing stream of typed inputs processed by one reusable
-  worker function, with explicit worker and queue limits and a future for each
-  admitted job.
-- Use a `Limiter` to cap the rate of operations or bytes per second with a
-  token bucket.
-- Use an `Adaptive` limiter when the right concurrency is unknown and should
-  follow downstream feedback, such as HTTP 429 or 503 responses.
+## Quick start
 
-### Typed futures
-
-Use a future when one asynchronous operation produces a value or error that
-will be consumed later.
-
-`Go` starts one function asynchronously and returns a `*Future[T]`.
-`Completed` and `Failed` create already-resolved futures. A future exposes:
-
-- `Await(ctx)` to wait for its value or error;
-- `Try()` to inspect it without blocking; and
-- `Done()` for integration with `select`.
-
-The context passed to `Go` controls the work. The context passed to `Await`
-controls only that wait:
+Square numbers with at most two concurrent calls; the results keep input
+order. This is the package [`Example`](example_test.go), so it is compiled
+and checked by `go test`:
 
 ```go
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	concurrency "github.com/justusschock/go-concurrency"
 )
 
 func main() {
-	workCtx, cancelWork := context.WithCancel(context.Background())
-	defer cancelWork()
+	ctx := context.Background()
 
-	release := make(chan struct{})
-	future := concurrency.Go(workCtx, func(ctx context.Context) (int, error) {
-		select {
-		case <-release:
-			return 42, nil
-		case <-ctx.Done():
-			return 0, context.Cause(ctx)
+	squares, err := concurrency.ParallelMap(ctx, []int{1, 2, 3, 4}, 2, func(ctx context.Context, n int) (int, error) {
+		if err := context.Cause(ctx); err != nil {
+			return 0, err
 		}
-	})
-
-	waitCtx, cancelWait := context.WithCancel(context.Background())
-	cancelWait()
-	_, waitErr := future.Await(waitCtx)
-	if !errors.Is(waitErr, context.Canceled) {
-		panic("expected the wait to be canceled")
-	}
-
-	close(release) // The canceled wait did not cancel the work.
-	value, err := future.Await(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(value)
-}
-```
-
-### Bounded structured groups
-
-Use a group for fork-join work: submit one scoped batch of related callbacks,
-cancel peers when a callback fails, and wait for the whole batch. Each `Go`
-call may submit a different function.
-
-`NewGroup(parent, limit)` creates a group with a positive concurrency limit.
-`Go` admits callbacks up to that limit and blocks while capacity is full. The
-first callback error cancels the shared group context; `Wait` drains admitted
-callbacks, closes the group to new work, and joins callback errors in submission
-order.
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-
-	concurrency "github.com/justusschock/go-concurrency"
-)
-
-func main() {
-	group, err := concurrency.NewGroup(context.Background(), 2)
-	if err != nil {
-		panic(err)
-	}
-
-	inputs := []int{1, 2, 3}
-	results := make([]int, len(inputs))
-	for index, value := range inputs {
-		index, value := index, value
-		if err := group.Go(func(ctx context.Context) error {
-			if cause := context.Cause(ctx); cause != nil {
-				return cause
-			}
-			results[index] = value * value
-			return nil
-		}); err != nil {
-			_ = group.Wait()
-			panic(err)
-		}
-	}
-
-	if err := group.Wait(); err != nil {
-		panic(err)
-	}
-	fmt.Println(results) // [1 4 9]
-}
-```
-
-### Ordered `ParallelMap`
-
-Use `ParallelMap` when every input needs the same transformation and the output
-must remain in input order even though work runs concurrently.
-
-`ParallelMap` applies a typed function with bounded concurrency. Successful
-results always follow input order, regardless of completion order. On any
-admission or callback error it waits for admitted work and returns a nil result
-slice with the error.
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"time"
-
-	concurrency "github.com/justusschock/go-concurrency"
-)
-
-func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	values, err := concurrency.ParallelMap(
-		ctx,
-		[]int{1, 2, 3},
-		2,
-		func(ctx context.Context, value int) (int, error) {
-			if cause := context.Cause(ctx); cause != nil {
-				return 0, cause
-			}
-			return value * value, nil
-		},
-	)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(values) // [1 4 9]
-}
-```
-
-### Reusable worker pool
-
-Use a pool when jobs arrive over time and all typed inputs should pass through
-the same reusable worker function. A pool combines bounded admission
-(`workers + queue`) with a separate execution limit (`workers`) and returns an
-independent future for each admitted job. Unlike a group, one worker error does
-not cancel the other jobs or become part of one aggregate error.
-
-`NewPool(ctx, workers, queue, worker)` reuses one typed worker function across
-submissions. `Submit` waits for admission using its own context and returns a
-future once admitted. The worker receives the pool context, so canceling a
-submission context after admission does not cancel that work.
-
-Always call `Close` to reject new submissions and `Wait` to drain admitted work:
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-
-	concurrency "github.com/justusschock/go-concurrency"
-)
-
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	pool, err := concurrency.NewPool(ctx, 2, 2, func(ctx context.Context, value int) (int, error) {
-		select {
-		case <-ctx.Done():
-			return 0, context.Cause(ctx)
-		default:
-			return value * value, nil
-		}
+		return n * n, nil
 	})
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		pool.Close()
-		pool.Wait()
-	}()
-
-	futures := make([]*concurrency.Future[int], 0, 4)
-	for _, value := range []int{1, 2, 3, 4} {
-		future, err := pool.Submit(ctx, value)
-		if err != nil {
-			panic(err)
-		}
-		futures = append(futures, future)
-	}
-
-	results := make([]int, 0, len(futures))
-	for _, future := range futures {
-		value, err := future.Await(ctx)
-		if err != nil {
-			panic(err)
-		}
-		results = append(results, value)
-	}
-	fmt.Println(results) // [1 4 9 16]
+	fmt.Println(squares) // [1 4 9 16]
 }
+```
+
+`example_test.go` has runnable examples for every entry point: `ExampleGo`,
+`ExampleGroup`, `ExampleParallelMap`, `ExamplePool`, `ExampleLimiter` and
+`ExampleAdaptive`.
+
+### Choosing a primitive
+
+| Use | When |
+|---|---|
+| `Future` (`Go`, `Completed`, `Failed`) | One asynchronous result you await later. |
+| `Group` (`NewGroup`) | A scoped batch of related, possibly different callbacks that share cancellation and join their errors. |
+| `ParallelMap` | The same function over a slice, results in input order. |
+| `Pool` (`NewPool`) | An ongoing stream of typed inputs through one worker function, with back-pressure and a future per job. One job's error does not affect the others. |
+| `Limiter` (`NewLimiter`) | Cap operations or bytes per second. |
+| `Adaptive` (`NewAdaptive`) | The right concurrency is unknown and should follow downstream feedback such as HTTP 429 or 503. |
+
+### Futures
+
+The context passed to `Go` controls the work; the context passed to `Await`
+controls only that wait. A result that is already published wins over a
+canceled wait.
+
+### Groups
+
+`NewGroup(parent, limit)` creates a group; `Go` blocks while `limit`
+callbacks run. The first callback error cancels the group context with that
+error as the cause. `Wait` closes the group (blocked and later `Go` calls
+return `ErrClosed`), waits for admitted callbacks and returns their errors
+joined in submission order.
+
+### Pools
+
+`NewPool(ctx, workers, queue, worker)` admits at most `workers + queue`
+submissions and runs at most `workers` at once. `Submit` waits for admission
+under its own context and returns a `*Future[O]`; once admitted, the worker
+runs with the pool context. Always `Close` the pool and then `Wait` for
+admitted work:
+
+```go
+pool, err := concurrency.NewPool(ctx, 2, 2, func(_ context.Context, value int) (int, error) {
+	return value * value, nil
+})
+if err != nil {
+	return err
+}
+future, err := pool.Submit(ctx, 3)
+// …
+pool.Close()
+pool.Wait()
+value, err := future.Await(ctx) // 9, nil
 ```
 
 ### Token-bucket `Limiter`
 
-`NewLimiter(rate, burst)` creates a full bucket that holds at most `burst`
-tokens and refills at `rate` tokens per second. `Wait(ctx, n)` blocks until
-`n` tokens are available and takes them. `TryAcquire(n)` takes them only if
-they are available now. `SetRate` changes the refill rate at runtime and
-re-evaluates blocked waiters immediately.
-
-- A rate of `0` never refills: only the initial burst is available until
-  `SetRate` raises the rate.
-- A rate of `math.Inf(1)` is unlimited: every request succeeds immediately,
-  including requests larger than `burst`.
-- A negative or NaN rate, or a non-positive burst, is rejected with
-  `ErrInvalidLimit`. So is a negative `n`, or an `n` above `burst` at a finite
-  rate.
+`NewLimiter(rate, burst)` creates a full bucket holding at most `burst`
+tokens that refills at `rate` tokens per second. `Wait(ctx, n)` blocks until
+`n` tokens are available and takes them; `TryAcquire(n)` takes them only if
+they are available now and no waiter is queued. `SetRate` changes the rate
+and re-evaluates waiters immediately. A rate of `0` never refills; a rate of
+`math.Inf(1)` grants every request, including requests above `burst`.
 
 ```go
-package main
-
-import (
-	"context"
-	"fmt"
-
-	concurrency "github.com/justusschock/go-concurrency"
-)
-
-func main() {
-	// Limit uploads to 8 MiB/s with bursts of up to 1 MiB.
-	limiter, err := concurrency.NewLimiter(8<<20, 1<<20)
-	if err != nil {
-		panic(err)
-	}
-
-	chunk := make([]byte, 256<<10)
-	for range 4 {
-		if err := limiter.Wait(context.Background(), len(chunk)); err != nil {
-			panic(err)
-		}
-		// Upload chunk.
-	}
-	fmt.Println(limiter.Rate())
+// Limit uploads to 8 MiB/s with bursts of up to 1 MiB.
+limiter, err := concurrency.NewLimiter(8<<20, 1<<20)
+if err != nil {
+	return err
+}
+if err := limiter.Wait(ctx, len(chunk)); err != nil {
+	return err
 }
 ```
 
 ### Adaptive concurrency
 
-An `Adaptive` limiter admits up to `Limit()` concurrent permits and adjusts
-that limit with additive increase and multiplicative decrease (AIMD). Release
-each permit with the outcome of its work:
-
-- `Success` counts toward raising the limit by one, up to `Max`;
-- `Overload` scales the limit by `DecreaseFactor`, down to `Min`; and
-- `Failure` leaves the limit unchanged.
-
-`AdaptiveOptions.Max` is required. `Min` defaults to 1, `Initial` to `Min`, and
-`DecreaseFactor` to `DefaultAdaptiveDecreaseFactor` (0.7). `IncreaseAfter`
-is the number of successes that raise the limit by one; 0 uses the current
-limit, which grows the limit by about one per window of completed work.
+`NewAdaptive(AdaptiveOptions{Max: 32})` admits up to `Limit()` permits.
+Release each permit with the outcome of its work: `Success` counts toward
+raising the limit by one (up to `Max`), `Overload` scales it by
+`DecreaseFactor` (down to `Min`), `Failure` leaves it unchanged. `Min`
+defaults to 1, `Initial` to `Min`, `DecreaseFactor` to
+`DefaultAdaptiveDecreaseFactor` (0.7); `IncreaseAfter` of 0 grows the limit
+by about one per window of completed work.
 
 ```go
-package main
-
-import (
-	"context"
-	"errors"
-	"fmt"
-	"net/http"
-
-	concurrency "github.com/justusschock/go-concurrency"
-)
-
-var errThrottled = errors.New("throttled")
-
-func main() {
-	ctx := context.Background()
-	adaptive, err := concurrency.NewAdaptive(concurrency.AdaptiveOptions{
-		Min:     1,
-		Max:     32,
-		Initial: 4,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	group, err := concurrency.NewGroup(ctx, 32)
-	if err != nil {
-		panic(err)
-	}
-	for part := range 16 {
-		permit, err := adaptive.Acquire(ctx)
-		if err != nil {
-			panic(err)
-		}
-		if err := group.Go(func(ctx context.Context) error {
-			err := upload(ctx, part)
-			switch {
-			case errors.Is(err, errThrottled):
-				permit.Release(concurrency.Overload)
-				return nil // Requeue the part instead of failing the batch.
-			case err != nil:
-				permit.Release(concurrency.Failure)
-				return err
-			default:
-				permit.Release(concurrency.Success)
-				return nil
-			}
-		}); err != nil {
-			permit.Release(concurrency.Failure)
-			panic(err)
-		}
-	}
-	if err := group.Wait(); err != nil {
-		panic(err)
-	}
-	fmt.Println(adaptive.Limit())
+permit, err := adaptive.Acquire(ctx)
+if err != nil {
+	return err
 }
-
-func upload(_ context.Context, part int) error {
-	if part%5 == 4 {
-		return fmt.Errorf("part %d: status %d: %w", part, http.StatusTooManyRequests, errThrottled)
-	}
-	return nil
+err = call(ctx)
+switch {
+case errors.Is(err, errThrottled):
+	permit.Release(concurrency.Overload)
+case err != nil:
+	permit.Release(concurrency.Failure)
+default:
+	permit.Release(concurrency.Success)
 }
 ```
 
-## Behavioral guarantees
+## Packages
 
-- Canceling an `Await` context never cancels the future's underlying work. A
-  result that is already published wins over wait cancellation.
-- A group runs at most `limit` callbacks at once. Callback errors are collected
-  by submission index and joined in that deterministic order.
-- `ParallelMap` returns results by input index, not completion order, and does
-  not expose partial results on failure.
-- A pool's admission budget is exactly `workers + queue`, counting running and
-  queued submissions. Later `Submit` calls wait for capacity or their submission
-  context.
-- A pool executes at most `workers` worker calls concurrently. Admitted work
-  continues to completion after `Close`; `Wait` blocks until it has drained.
-- Future results are published once. `Try` reports pending work without blocking,
-  and `Done` closes when the result is available.
-- `Limiter.Wait` and `Adaptive.Acquire` serve blocked callers in FIFO order, so
-  large token requests are not starved by smaller ones. `TryAcquire` never
-  jumps ahead of queued waiters. A canceled wait takes no tokens or permit,
-  unless they were granted before the cancellation was observed, in which case
-  the grant wins.
-- An `Adaptive` limiter decreases at most once per overload burst: overloads
-  reported by permits acquired before the latest decrease do not decrease the
-  limit again. `InFlight` can briefly exceed `Limit` after a decrease; new
-  permits wait until it drops below the limit. Releasing a permit more than
-  once has no effect.
+| Package | Description |
+|---|---|
+| `github.com/justusschock/go-concurrency` (package `concurrency`) | Futures, groups, `ParallelMap`, pools, `Limiter`, `Adaptive` and the sentinel errors. |
 
-## Errors
+This is the only public package. Anything under `internal/` (none today) is
+not part of the API.
 
-The package exports stable sentinel errors:
+## Design and guarantees
 
-| Error | Returned when |
-| --- | --- |
-| `ErrClosed` | `Group.Go` is called after `Wait`, or `Pool.Submit` is called after `Close` |
-| `ErrInvalidLimit` | A group/map limit, pool worker/queue configuration, limiter rate/burst/token count, or adaptive option is invalid |
-| `ErrNilFunction` | A required callback or worker function is nil |
+- **Concurrency safety.** Futures, groups, pools, limiters and permits are
+  safe for concurrent use. Every goroutine the library starts exits when its
+  work returns; the limiter uses timers, not background goroutines.
+- **Cancellation.** Blocking calls take a `context.Context` and return
+  `context.Cause(ctx)` when it ends first. Waiting contexts never cancel shared
+  work. When a grant (result, tokens, permit) and a cancellation race, a grant
+  made first wins.
+- **Bounds and fairness.** Groups run at most `limit` callbacks; pools admit
+  at most `workers + queue` and run at most `workers`. `Limiter.Wait` and
+  `Adaptive.Acquire` serve waiters in FIFO order, so large requests are not
+  starved. An `Adaptive` limiter decreases at most once per overload burst.
+- **Shutdown.** `Group.Wait` and `Pool.Close` unblock callers waiting for
+  capacity with `ErrClosed`; admitted work runs to completion.
+- **Errors.** Sentinels `ErrClosed`, `ErrInvalidLimit` and `ErrNilFunction`
+  have stable texts; compare with `errors.Is`. `Group.Wait` and `ParallelMap`
+  join every callback error in submission order with `errors.Join`;
+  `ParallelMap` never returns partial results. Callback errors are not
+  wrapped.
+- **Scope.** In-process only. No retries or backoff (use a dedicated library
+  such as `github.com/cenkalti/backoff/v5`), no distributed or persistent
+  execution, no priorities, no dynamic pool resizing, no panic recovery.
+- **Stability.** The module is `v0.x`: minor releases may break the API.
+  Every break is listed in [CHANGELOG.md](CHANGELOG.md) and backed by an ADR.
 
-Use `errors.Is` for these sentinels, context cancellation causes, and callback or
-worker errors. In particular, `Group.Wait` and `ParallelMap` can return errors
-joined from multiple callbacks, so callers must not compare errors by string or
-with `==`.
+## Documentation
 
-For `Go[T](ctx, nil)`, the returned future is already resolved with
-`ErrNilFunction`; observe it through `Await` or `Try`.
+- API reference: [pkg.go.dev/github.com/justusschock/go-concurrency](https://pkg.go.dev/github.com/justusschock/go-concurrency)
+- Requirements and design decisions: [docs/README.md](docs/README.md)
+  (PRD and ADRs)
+- Changes: [CHANGELOG.md](CHANGELOG.md)
 
-## Scope and non-goals
+## Contributing
 
-This module provides in-process concurrency mechanisms. It deliberately does
-not provide retries or backoff, distributed execution, persistence, distributed
-or shared rate limits, priorities, dynamic pool resizing, or panic recovery.
-Callers own context lifetimes, which errors count as overload, and
-application-level shutdown.
-
-## Development
-
-Run the local checks with Go 1.25 or newer:
-
-```bash
-go test ./...
-go test -race ./...
-go vet ./...
-```
-
-CI runs module verification, vet, and the race-enabled test suite on each Go
-minor version from 1.25 through 1.27. Time-dependent tests run inside
-`testing/synctest` bubbles, so refill and wait timing is checked
-against a fake clock without real sleeps.
+Contributions go through pull requests against `main`; nothing is pushed to
+`main` directly, and a pull request merges only with green CI. Read
+[AGENTS.md](AGENTS.md) first: it describes the docs-first workflow, the
+public API rules and the checks to run locally.
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and
+[NOTICE](NOTICE).
