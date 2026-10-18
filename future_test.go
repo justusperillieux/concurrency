@@ -225,7 +225,7 @@ func TestFutureSentinelErrorsHaveStableText(t *testing.T) {
 			}
 		})
 	}
-	if ErrClosed == ErrInvalidLimit || ErrClosed == ErrNilFunction || ErrInvalidLimit == ErrNilFunction {
+	if errors.Is(ErrClosed, ErrInvalidLimit) || errors.Is(ErrClosed, ErrNilFunction) || errors.Is(ErrInvalidLimit, ErrNilFunction) {
 		t.Fatal("sentinel errors must be distinct")
 	}
 }
