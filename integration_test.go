@@ -8,7 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	concurrency "github.com/justusschock/concurrency"
+	concurrency "github.com/justusperillieux/concurrency"
 )
 
 // NFR-CONC-05

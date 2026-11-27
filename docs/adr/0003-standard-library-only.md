@@ -39,13 +39,13 @@ Comparable functionality exists outside the standard library, for example
      waiters that are re-evaluated on a rate change); wrappers would still be
      needed.
    - Con: adds dependencies to every consumer.
-3. **Depend on other justusschock libraries**
+3. **Depend on other justusperillieux libraries**
    - Con: this library is the lowest level; any such dependency would be circular.
 
 ## Decision
 
 We will use only the Go standard library in non-test and test code. Adding
-any third-party or other justusschock module requires a new ADR that
+any third-party or other justusperillieux module requires a new ADR that
 supersedes this one.
 
 ## Consequences
