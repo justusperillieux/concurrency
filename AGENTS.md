@@ -53,7 +53,7 @@ No behaviour is added or changed before the documents that govern it say so.
 
 ## Layout
 
-Single module, single package (`github.com/justusschock/concurrency`):
+Single module, single package (`github.com/justusperillieux/concurrency`):
 
 - `.` (package `concurrency`): the whole public API, one file per primitive:
   `future.go`, `group.go`, `parallel.go`, `pool.go`, `limiter.go`,
@@ -70,7 +70,7 @@ Single module, single package (`github.com/justusschock/concurrency`):
 1. **Small, explicit contracts.** Every exported type and function documents
    its behaviour, errors, concurrency safety and cancellation.
 2. **Dependencies.** Standard library only (ADR-0003), in library and
-   test code. Any new dependency, including another justusschock module,
+   test code. Any new dependency, including another justusperillieux module,
    needs an ADR that supersedes ADR-0003.
 3. **Errors.** Sentinel errors and typed errors are part of the API; wrap
    with `%w` and test with `errors.Is`/`errors.As`.

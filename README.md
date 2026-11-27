@@ -29,13 +29,13 @@ shutdown without pulling in dependencies: it uses only the standard library.
 ## Installation
 
 ```bash
-go get github.com/justusschock/concurrency@latest
+go get github.com/justusperillieux/concurrency@latest
 ```
 
 Requires Go 1.25 or newer. Import it as:
 
 ```go
-import concurrency "github.com/justusschock/concurrency"
+import concurrency "github.com/justusperillieux/concurrency"
 ```
 
 ## Quick start
@@ -51,7 +51,7 @@ import (
 	"context"
 	"fmt"
 
-	concurrency "github.com/justusschock/concurrency"
+	concurrency "github.com/justusperillieux/concurrency"
 )
 
 func main() {
@@ -171,7 +171,7 @@ default:
 
 | Package | Description |
 |---|---|
-| `github.com/justusschock/concurrency` (package `concurrency`) | Futures, groups, `ParallelMap`, pools, `Limiter`, `Adaptive` and the sentinel errors. |
+| `github.com/justusperillieux/concurrency` (package `concurrency`) | Futures, groups, `ParallelMap`, pools, `Limiter`, `Adaptive` and the sentinel errors. |
 
 This is the only public package. Anything under `internal/` (none today) is
 not part of the API.
@@ -204,7 +204,7 @@ not part of the API.
 
 ## Documentation
 
-- API reference: [pkg.go.dev/github.com/justusschock/concurrency](https://pkg.go.dev/github.com/justusschock/concurrency)
+- API reference: [pkg.go.dev/github.com/justusperillieux/concurrency](https://pkg.go.dev/github.com/justusperillieux/concurrency)
 - Requirements and design decisions: [docs/README.md](docs/README.md)
   (PRD and ADRs)
 - Changes: [CHANGELOG.md](CHANGELOG.md)

@@ -14,7 +14,7 @@ Recorded retrospectively. Before the first public release, every exported
 identifier was reviewed to decide whether it is a contract users need or an
 implementation detail that should be unexported or moved under `internal/`.
 The module is one package with no sub-packages. Consumers (other
-justusschock libraries and applications) use `Future`, `Go`, `Failed`,
+justusperillieux libraries and applications) use `Future`, `Go`, `Failed`,
 `ParallelMap`, `NewGroup`, `NewPool`, `NewLimiter`, `NewAdaptive`,
 `Adaptive`, `AdaptiveOptions`, `Success`, `Overload`, `Failure`,
 `ErrClosed` and `ErrInvalidLimit`.
